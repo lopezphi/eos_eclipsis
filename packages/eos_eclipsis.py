@@ -437,7 +437,7 @@ class EOS_ECLIPSIS:
             elif time_to_event > 43200:
                 logging.critical(f"{event} Date/Time will happen in {converted_time_to_event}!")
                 # exit()
-            elif time_to_event > 10800:
+            elif time_to_event > 14400:
                 logging.warning(f"{event} Date/Time will happen in {converted_time_to_event}!")
             elif time_to_event > 0:
                 logging.info(f"{event} Date/Time will happen in {converted_time_to_event} ...")
@@ -529,7 +529,7 @@ class EOS_ECLIPSIS:
                     self.long_wait(c1_time_to_event, c1_name)
 
                 logging.info(f"Start of the Partial Phase...")
-                if partial_nb == 2 and c1_time_to_event < 0:
+                if partial_nb == 2 and c1_time_to_event > -120:
                     logging.info(" ===>>> !! PLACE AGAIN THE SOLAR FILTER !! ===>>>")
                 next_time = c1_tstamp
                 nb_photo_taken = 0
