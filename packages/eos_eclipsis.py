@@ -81,8 +81,23 @@ class EOS_ECLIPSIS:
             logging.critical(f'The print_execution_time knob {self.print_execution_time} is not a boolean type. True or False boolean is expected')
             if self.camera is not None:
                 exit()
+        # Shot Redundancy in Partial Phase Mode
+        try:
+            self.partial_shot_redundancy = int(knobs_dict['partial_shot_redundancy'])
+        except:
+            logging.critical(f'Could not convert the partial_shot_redundancy knob {knobs_dict["partial_shot_redundancy"]} to an integer type')
+            self.partial_shot_redundancy = 1 if self.camera is None else exit()
+        # Shot Duration in Partial Phase Mode
+        try:
+            self.partial_shot_duration = float(knobs_dict['partial_shot_duration'])
+        except:
+            logging.critical(f'Could not convert the partial_shot_duration knob {knobs_dict["partial_shot_duration"]} to a float type')
+            self.partial_shot_duration = 1 if self.camera is None else exit()
         # Drive Modes
-        self.partial_drive_mode = 'Single shooting'
+        if self.partial_shot_duration == 0:
+            self.partial_drive_mode = 'Single shooting'
+        else:
+            self.partial_drive_mode = 'High speed continuous +'
         self.drings_drive_mode = knobs_dict['drings_drive_mode']
         if self.drings_drive_mode not in DriveMode.Value:
             logging.critical(f'Drive Mode selected for Partial Phase is unknown: {self.drings_drive_mode}')
@@ -93,12 +108,6 @@ class EOS_ECLIPSIS:
             logging.critical(f'Drive Mode selected for Partial Phase is unknown: {self.totality_drive_mode}')
             logging.info(f'Available Drive Mode: {list(DriveMode.Value.keys())}')
             self.totality_drive_mode = next(iter(DriveMode.Value)) if self.camera is None else exit()
-        # Shot Redundancy in Partial Phase Mode
-        try:
-            self.partial_shot_redundancy = int(knobs_dict['partial_shot_redundancy'])
-        except:
-            logging.critical(f'Could not convert the partial_shot_redundancy knob {knobs_dict["partial_shot_redundancy"]} to an integer type')
-            self.partial_shot_redundancy = 1 if self.camera is None else exit()
         # Max Frame per Second during Totality Phase
         try:
             self.totality_max_fps = float(knobs_dict['totality_max_fps'])
@@ -112,6 +121,13 @@ class EOS_ECLIPSIS:
             logging.critical(f'Could not evaluate the Sweep Parameters. Must be defined as a list of string like ["start", "end", "incremental_step"]. Ex [`\'1/320\', \'1/5\', \'1/3\']')
             self.totality_sweep_shutterspeed = [] if self.camera is None else exit()
         self.totality_shutterspeed_sweep_list = self.get_sweep_list(self.totality_sweep_shutterspeed, 'Tv')
+        # Totality Aperture Sweep
+        try:
+            self.totality_sweep_aperture = eval(knobs_dict['totality_sweep_aperture'])
+        except:
+            logging.critical(f'Could not evaluate the Sweep Parameters. Must be defined as a list of string like ["start", "end", "incremental_step"]. Ex [`\'8\', \'11\', \'1/3\']')
+            self.totality_sweep_aperture = [] if self.camera is None else exit()
+        self.totality_aperture_sweep_list = self.get_sweep_list(self.totality_sweep_aperture, 'Av')
         # Totality ISO Speed Sweep
         try:
             self.totality_sweep_iso = eval(knobs_dict['totality_sweep_iso'])
@@ -213,14 +229,14 @@ class EOS_ECLIPSIS:
         unix_timestamp = datetime.datetime.timestamp(date_time)
         return unix_timestamp
 
-    def get_metrics(self, c2_tstamp=None) :
+    def get_metrics(self, c2_tstamp=None):
         if c2_tstamp is None:
             c2_tstamp = self.c2_tstamp
-        totality_nb_photos = 2 * (len(self.totality_iso_sweep_list) + len(self.totality_shutterspeed_sweep_list))
+        totality_nb_photos = 2 * (len(self.totality_iso_sweep_list) + len(self.totality_aperture_sweep_list) + len(self.totality_shutterspeed_sweep_list))
         totality_exposure_duration = 0
         for exposure in self.totality_shutterspeed_sweep_list:
             totality_exposure_duration += eval(exposure.replace('h', ''))
-        for _ in self.totality_iso_sweep_list:
+        for _ in self.totality_iso_sweep_list + self.totality_aperture_sweep_list:
             totality_exposure_duration += eval(self.totality_shutterspeed_sweep_list[-1])
         totality_exposure_duration *= 2
         totality_margin_time = self.c3_tstamp - c2_tstamp - 2 * self.drings_over_totality - totality_exposure_duration - totality_nb_photos * self.busy_period_guarband
@@ -228,19 +244,28 @@ class EOS_ECLIPSIS:
         return totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo
 
     def get_sweep_list(self, sweep_factor_list, sweep_type) -> list:
-        for sweep_factor in sweep_factor_list[:-1]:
-            if sweep_factor not in eval(sweep_type).Value:
-                logging.critical(f'{sweep_type} Sweep Factor {sweep_factor} from the {sweep_factor_list} list does not exist from the available list')
-                logging.critical(f'Avalaible list: {list(eval(sweep_type).Value.keys())}')
-                if self.camera is not None:
-                    exit()
         sweep_list = []
-        if sweep_factor_list:
+        if len(sweep_factor_list) == 3 and (sweep_factor_list[2] == "1/1" or sweep_factor_list[2] == "1/2" or sweep_factor_list[2] == "1/3"):
+            for sweep_factor in sweep_factor_list[:-1]:
+                if sweep_factor not in eval(sweep_type).Value:
+                    logging.critical(f'{sweep_type} Sweep Value {sweep_factor} from the {sweep_factor_list} list does not exist from the available list')
+                    logging.critical(f'Avalaible list: {list(eval(sweep_type).Value.keys())}')
+                    if self.camera is not None:
+                        exit()
+        else:
+            for sweep_factor in sweep_factor_list:
+                if sweep_factor not in eval(sweep_type).Value:
+                    logging.critical(f'{sweep_type} Sweep Value {sweep_factor} from the {sweep_factor_list} list does not exist from the available list')
+                    logging.critical(f'Avalaible list: {list(eval(sweep_type).Value.keys())}')
+                    if self.camera is not None:
+                        exit()
+            sweep_list = sweep_factor
+        if sweep_factor_list and not sweep_list:
             sweep_start = sweep_factor_list[0]
             sweep_end = sweep_factor_list[1]
             sweep_step = sweep_factor_list[2]
             try:
-                if sweep_type == 'ISO' and float(sweep_start) < float(sweep_end) or sweep_type == 'ISO' and float(sweep_start) > float(sweep_end):
+                if float(sweep_start) > float(sweep_end):
                     sweep_temp = sweep_start
                     sweep_start = sweep_end
                     sweep_end = sweep_temp
@@ -261,6 +286,8 @@ class EOS_ECLIPSIS:
                 value_ref = "100"
             elif sweep_type == 'Tv':
                 value_ref = "1/6000"
+            elif sweep_type == 'Av':
+                value_ref = "2.5h"
             idx_ref = values_list.index(value_ref)
             add_value_flag = False
             mod_val = None
@@ -269,7 +296,7 @@ class EOS_ECLIPSIS:
                     mod_val = 3
                 elif sweep_step == "1/3":
                     mod_val = 1
-            elif sweep_type == "Tv":
+            elif sweep_type == "Tv" or sweep_type == "Av":
                 if sweep_step == "1/1":
                     mod_val = 4
                 elif sweep_step == "1/2":
@@ -285,7 +312,7 @@ class EOS_ECLIPSIS:
                     if sweep_value == sweep_start:
                         add_value_flag = True
                     if add_value_flag:
-                        if sweep_type == "Tv":
+                        if sweep_type == "Tv" or sweep_type == "Av":
                             if (idx_ref - idx) % mod_val == 0 and (sweep_step == "1/1" or sweep_step == "1/2"):
                                 sweep_list.append(sweep_value)
                             elif (idx_ref - idx) % mod_val != 0 and sweep_step == "1/3":
@@ -485,13 +512,13 @@ class EOS_ECLIPSIS:
                 if self.auto_focus_mode == 'On':
                     self.camera.SingleShootAF(start_time=self.timenow())
                 else:
-                    self.camera.BurstShootNonAF(start_time=self.timenow())
+                    self.camera.BurstShootNonAF(duration=self.partial_shot_duration, start_time=self.timenow())
                 logging.info(f"Photo n{nb+1} of Partial Phase {partial_nb} taken!")
                 for i in range(self.partial_shot_redundancy):
                     if self.auto_focus_mode == 'On':
                         self.camera.SingleShootAF(start_time=self.timenow())
                     else:
-                        self.camera.BurstShootNonAF(start_time=self.timenow())
+                        self.camera.BurstShootNonAF(duration=self.partial_shot_duration, start_time=self.timenow())
                     logging.info(f"Redundancy n{i+1} of Photo n{nb+1} of Partial Phase {partial_nb} taken!")
                 self.long_wait(self.partial_period, f"Photo n{nb+2} of Partial Phase {partial_nb}")
         else:
@@ -544,14 +571,14 @@ class EOS_ECLIPSIS:
                     if self.auto_focus_mode == 'On':
                         self.camera.SingleShootAF(start_time=self.timenow())
                     else:
-                        self.camera.BurstShootNonAF(start_time=self.timenow())
+                        self.camera.BurstShootNonAF(duration=self.partial_shot_duration, start_time=self.timenow())
                     nb_photo_taken += 1
                     logging.info(f"Photo n{nb_photo_taken} of Partial Phase {partial_nb} taken!")
                     for i in range(self.partial_shot_redundancy):
                         if self.auto_focus_mode == 'On':
                             self.camera.SingleShootAF(start_time=self.timenow())
                         else:
-                            self.camera.BurstShootNonAF(start_time=self.timenow())
+                            self.camera.BurstShootNonAF(duration=self.partial_shot_duration, start_time=self.timenow())
                         logging.info(f"Redundancy n{i+1} of Photo n{nb_photo_taken} of Partial Phase {partial_nb} taken!")
                     c2_time_to_event = self.get_wait_time_until_event(c2_tstamp_adjusted, c2_name)
                     time_to_next_event = next_time - self.utcnow()
@@ -656,8 +683,15 @@ class EOS_ECLIPSIS:
                     if totality_margin_time < 0:
                         if self.totality_sweep_shutterspeed[2] == '1/3':
                             logging.warning('Total margin time is negative. Will switch the Shutter Speed step from 1/3 to 1/2')
-                            sweep_factor_list = self.totality_sweep_shutterspeed[:-1] +['1/2']
+                            sweep_factor_list = self.totality_sweep_shutterspeed[:-1] + ['1/2']
                             self.totality_shutterspeed_sweep_list = self.get_sweep_list(sweep_factor_list, 'Tv')
+                            totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics()
+                            if totality_margin_time < 0:
+                                logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
+                        if self.totality_sweep_aperture[2] == '1/3':
+                            logging.warning('Total margin time is negative. Will switch the Aperture step from 1/3 to 1/2')
+                            sweep_factor_list = self.totality_sweep_aperture[:-1] + ['1/2']
+                            self.totality_aperture_sweep_list = self.get_sweep_list(sweep_factor_list, 'Av')
                             totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics()
                             if totality_margin_time < 0:
                                 logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
@@ -674,6 +708,14 @@ class EOS_ECLIPSIS:
                                 logging.warning('Total margin time is negative. Will switch the Shutter Speed step from 1/2 to 1/1')
                                 sweep_factor_list = self.totality_sweep_shutterspeed[:-1] + ['1/1']
                                 self.totality_shutterspeed_sweep_list = self.get_sweep_list(sweep_factor_list, 'Tv')
+                                totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics()
+                                if totality_margin_time < 0:
+                                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
+                        if totality_margin_time < 0:
+                            if self.totality_sweep_aperture[2] == '1/3'or self.totality_sweep_aperture[2] == '1/2':
+                                logging.warning('Total margin time is negative. Will switch the Aperture step from 1/2 to 1/1')
+                                sweep_factor_list = self.totality_sweep_aperture[:-1] + ['1/1']
+                                self.totality_aperture_sweep_list = self.get_sweep_list(sweep_factor_list, 'Av')
                                 totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics()
                                 if totality_margin_time < 0:
                                     logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
@@ -699,7 +741,7 @@ class EOS_ECLIPSIS:
                 else:
                     totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics()
                     if force_exec:
-                        next_event_time =self.c2_tstamp + self.drings_over_totality
+                        next_event_time = self.c2_tstamp + self.drings_over_totality
                     else:
                         next_event_time = max(utcnow, self.c2_tstamp + self.drings_over_totality)
                     
@@ -707,11 +749,14 @@ class EOS_ECLIPSIS:
                     totality_weighted_exposure_duration = 0
                     for shutterspeed in self.totality_shutterspeed_sweep_list:
                         totality_weighted_exposure_duration += max(eval(shutterspeed.replace('h', '')), 1/self.totality_max_fps)
-                    for _ in self.totality_iso_sweep_list:
+                    for _ in self.totality_iso_sweep_list + self.totality_aperture_sweep_list:
                         totality_weighted_exposure_duration += max(eval(self.totality_shutterspeed_sweep_list[-1].replace('h', '')), 1/self.totality_max_fps)
                     totality_weighted_exposure_duration *= 2
                     totality_weighted_margin_time = self.c3_tstamp - next_event_time - self.drings_over_totality - totality_weighted_exposure_duration
 
+                    if force_exec:
+                        next_event_time = utcnow
+                        
                     for shutterspeed in self.totality_shutterspeed_sweep_list:
                         shutterspeed_val = shutterspeed.replace('h', '')
                         duration = (max(eval(shutterspeed_val), 1/self.totality_max_fps) / totality_weighted_exposure_duration) * totality_weighted_margin_time + max(eval(shutterspeed_val), 1/self.totality_max_fps)
@@ -719,7 +764,16 @@ class EOS_ECLIPSIS:
                         utcnow = self.utcnow()
                         if next_event_time > utcnow - 1 or force_exec:
                             self.camera.SetProperty(property=Property.Tv, parameter=Tv.Value[shutterspeed], property_name='Tv', start_time=self.timenow())
-                            logging.info(f'Shoot at {shutterspeed_val} Shutter Speed and {self.iso} ISO for {round(duration, 3)} s.')
+                            logging.info(f'Shoot at {shutterspeed_val} Shutter Speed and {self.aperture} Aperture and {self.iso} ISO for {round(duration, 3)} s.')
+                            self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
+                        else:
+                            logging.error(f'Skipping pictures at Shutter Speed {shutterspeed_val} as we are running late by {round(next_event_time-utcnow, 3)} seconds on the schedule')
+                    for aperture in self.totality_aperture_sweep_list:
+                        next_event_time += duration
+                        utcnow = self.utcnow()
+                        if next_event_time > utcnow - 1 or force_exec:
+                            self.camera.SetProperty(property=Property.Av, parameter=Av.Value[aperture], property_name='Av', start_time=self.timenow())
+                            logging.info(f'Shoot at {shutterspeed_val} Shutter Speed and {aperture} Aperture and {self.iso} ISO for {round(duration, 3)} s.')
                             self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
                         else:
                             logging.error(f'Skipping pictures at Shutter Speed {shutterspeed_val} as we are running late by {round(next_event_time-utcnow, 3)} seconds on the schedule')
@@ -728,11 +782,23 @@ class EOS_ECLIPSIS:
                         utcnow = self.utcnow()
                         if next_event_time > utcnow -1 or force_exec:
                             self.camera.SetProperty(property=Property.ISOSpeed, parameter=ISO.Value[iso], property_name='ISO', start_time=self.timenow())
-                            logging.info(f'Shoot at {shutterspeed_val} Shutter Speed and {iso} ISO for {round(duration, 3)} s.')
+                            logging.info(f'Shoot at {shutterspeed_val} Shutter Speed and {aperture} Aperture and {iso} ISO for {round(duration, 3)} s.')
                             self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
                         else:
                             logging.error(f'Skipping pictures at ISO Speed {iso} as we are running late on the schedule')
-                    self.camera.SetProperty(property=Property.ISOSpeed, parameter=ISO.Value[self.iso], property_name='ISO', start_time=self.timenow())
+                    if self.totality_iso_sweep_list:
+                        self.camera.SetProperty(property=Property.ISOSpeed, parameter=ISO.Value[self.iso], property_name='ISO', start_time=self.timenow())
+                    for aperture in reversed(self.totality_aperture_sweep_list):
+                        next_event_time += duration
+                        utcnow = self.utcnow()
+                        if next_event_time > utcnow - 1 or force_exec:
+                            self.camera.SetProperty(property=Property.Av, parameter=Av.Value[aperture], property_name='Av', start_time=self.timenow())
+                            logging.info(f'Shoot at {shutterspeed_val} Shutter Speed and {aperture} Aperture and {self.iso} ISO for {round(duration, 3)} s.')
+                            self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
+                        else:
+                            logging.error(f'Skipping pictures at Shutter Speed {shutterspeed_val} as we are running late by {round(next_event_time-utcnow, 3)} seconds on the schedule')
+                    if self.totality_aperture_sweep_list:
+                        self.camera.SetProperty(property=Property.Av, parameter=Av.Value[self.aperture], property_name='Av', start_time=self.timenow())
                     for shutterspeed in reversed(self.totality_shutterspeed_sweep_list):
                         shutterspeed_val = shutterspeed.replace('h', '')
                         duration = (max(eval(shutterspeed_val), 1/self.totality_max_fps) / totality_weighted_exposure_duration) * totality_weighted_margin_time + max(eval(shutterspeed_val), 1/self.totality_max_fps)
@@ -740,7 +806,7 @@ class EOS_ECLIPSIS:
                         utcnow = self.utcnow()
                         if next_event_time > utcnow - 1 or force_exec:
                             self.camera.SetProperty(property=Property.Tv, parameter=Tv.Value[shutterspeed], property_name='Tv', start_time=self.timenow())
-                            logging.info(f'Shoot at {shutterspeed_val} Shutter Speed and {self.iso} ISO for {round(duration, 3)} s.')
+                            logging.info(f'Shoot at {shutterspeed_val} Shutter Speed and {self.aperture} Aperture and {self.iso} ISO for {round(duration, 3)} s.')
                             self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
                         else:
                             logging.error(f'Skipping pictures at Shutter Speed {shutterspeed_val} as we are running late by {round(next_event_time-utcnow, 3)} seconds on the schedule')

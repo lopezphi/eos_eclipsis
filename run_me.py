@@ -86,7 +86,7 @@ knobs_dict = {}
 required_knobs_dict = {
     'default_iso_av_settings': ['iso', 'aperture'],
     'partial': ['partial_period'],
-    'totality': ['totality_sweep_shutterspeed', 'totality_sweep_iso']
+    'totality': ['totality_sweep_shutterspeed', 'totality_sweep_aperture', 'totality_sweep_iso']
 }
 for config_section, knobs_list in required_knobs_dict.items():
     for knob in knobs_list:
@@ -100,7 +100,8 @@ for config_section, knobs_list in required_knobs_dict.items():
 optionals_knobs_dict = {
     'partial': {
         'partial_shutterspeed'   : None, 
-        'partial_shot_redundancy': '0'
+        'partial_shot_redundancy': '0',
+        'partial_shot_duration'  : '0'
     },
     'diamonds': {
         'drings_over_partial'    : '0', 
