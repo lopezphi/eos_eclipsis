@@ -505,6 +505,12 @@ class EOS_ECLIPSIS:
         c2_name = f'C{2*(partial_nb-1)+2}-Adjusted'
 
         if force_exec:
+            logging.info(f"Camera Settings for Partial Phase {partial_nb} are ISO={self.iso}, Av={self.aperture}, Tv={self.partial_shutterspeed}s")
+            self.camera.SetProperty(property=Property.Tv, parameter=Tv.Value[self.partial_shutterspeed], property_name='Tv', start_time=self.timenow())
+            self.camera.SetProperty(property=Property.Av, parameter=Av.Value[self.aperture], property_name='Av', start_time=self.timenow())
+            self.camera.SetProperty(property=Property.ISOSpeed, parameter=ISO.Value[self.iso], property_name='ISO', start_time=self.timenow())
+            logging.info(f"Drive Mode for Partial Phase {partial_nb} set to {self.partial_drive_mode}")
+            self.camera.SetProperty(property=Property.DriveMode, parameter=DriveMode.Value[self.partial_drive_mode], property_name='Drive Mode', start_time=self.timenow())
             logging.info(f"Start of the Partial Phase in forced execution...")
             nb_photos = int(round((c2_tstamp - c1_tstamp) / self.partial_period, 0))
             logging.info(f"Will take {nb_photos} photos every {self.partial_period}s...")
@@ -646,13 +652,24 @@ class EOS_ECLIPSIS:
         if panic_mode:
             if self.camera is not None:
                 logging.info(f"Boarding Totality in panic mode...")
+                self.camera.SetProperty(property=Property.Av, parameter=Av.Value[self.aperture], property_name='Av', start_time=self.timenow())
+                self.camera.SetProperty(property=Property.ISOSpeed, parameter=ISO.Value[self.iso], property_name='ISO', start_time=self.timenow())
                 for shutterspeed in self.totality_shutterspeed_sweep_list:
                     self.camera.SetProperty(property=Property.Tv, parameter=Tv.Value[shutterspeed], property_name='Tv', start_time=self.timenow())
+                    self.camera.BurstShootNonAF(duration=0, start_time=self.timenow())
+                for aperture in self.totality_aperture_sweep_list:
+                    self.camera.SetProperty(property=Property.Av, parameter=Av.Value[aperture], property_name='Av', start_time=self.timenow())
                     self.camera.BurstShootNonAF(duration=0, start_time=self.timenow())
                 for iso in self.totality_iso_sweep_list + list(reversed(self.totality_iso_sweep_list)):
                     self.camera.SetProperty(property=Property.ISOSpeed, parameter=ISO.Value[iso], property_name='ISO', start_time=self.timenow())
                     self.camera.BurstShootNonAF(duration=0, start_time=self.timenow())
-                self.camera.SetProperty(property=Property.ISOSpeed, parameter=ISO.Value[self.iso], property_name='ISO', start_time=self.timenow())
+                if self.totality_iso_sweep_list:
+                    self.camera.SetProperty(property=Property.ISOSpeed, parameter=ISO.Value[self.iso], property_name='ISO', start_time=self.timenow())
+                for aperture in reversed(self.totality_aperture_sweep_list):
+                    self.camera.SetProperty(property=Property.Av, parameter=Av.Value[aperture], property_name='Av', start_time=self.timenow())
+                    self.camera.BurstShootNonAF(duration=0, start_time=self.timenow())
+                if self.totality_aperture_sweep_list:
+                    self.camera.SetProperty(property=Property.Av, parameter=Av.Value[self.aperture], property_name='Av', start_time=self.timenow())
                 for shutterspeed in reversed(self.totality_shutterspeed_sweep_list):
                     self.camera.SetProperty(property=Property.Tv, parameter=Tv.Value[shutterspeed], property_name='Tv', start_time=self.timenow())
                     self.camera.BurstShootNonAF(duration=0, start_time=self.timenow())
