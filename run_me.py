@@ -38,9 +38,11 @@ parser = argparse.ArgumentParser(description='Eclipsis - Automated Eclipse Photo
 parser.add_argument('cfg', type=str, help='Configuration file')
 parser.add_argument('--run_partial', action='store_true', help='Force to execute the Partial phase as planned regardless of the contacts date/time provided except for the duration defined as the maximum one between C1-C2 and between C3-C4')
 parser.add_argument('--run_drings', action='store_true', help='Force to execute the Diamonds Ring phase as planned regardless of the contacts date/time provided except for the duration defined with overlap over totality and partial phase')
-parser.add_argument('--run_totality', action='store_true', help='Force to execute the Totality phase as planned regardless of the contacts date/time provided except for the duration between C2-C3 minus the diamonds ring overlap')
+parser.add_argument('--run_totality', action='store_true', help='Force to execute the Totality phase as planned regardless of the contacts date/time provided except for the duration between C2-C3 minus the C2&C3 Time overlap')
 parser.add_argument('--run_totality_panic', action='store_true', help='Force to execute the Totality phase as planned regardless of the contacts date/time provided at the fastest pace as possible')
+parser.add_argument('--run_annularity', action='store_true', help='Force to execute the Annularity phase as planned regardless of the contacts date/time provided except for the duration between C2-C3 minus the C2&C3 Time overlap')
 parser.add_argument('--test', action='store_true', help='Test the inputs from the configuration for debug')
+parser.add_argument('--ase', action='store_true', help='Running for Annular Solar Eclipse')
 
 args = parser.parse_args()
 
@@ -86,39 +88,48 @@ knobs_dict = {}
 required_knobs_dict = {
     'default_iso_av_settings': ['iso', 'aperture'],
     'partial': ['partial_period'],
-    'totality': ['totality_sweep_shutterspeed', 'totality_sweep_aperture', 'totality_sweep_iso']
+    'totality': ['totality_sweep_shutterspeed', 'totality_sweep_aperture', 'totality_sweep_iso'],
+    'annularity': ['annularity_period'],
 }
 for config_section, knobs_list in required_knobs_dict.items():
     for knob in knobs_list:
         try:
             knobs_dict[knob] = config.get(config_section, knob)
         except:
-            logging.critical(f'Could not get {knob} information from Configuration File')
-            Error_Flag = True
+            if config_section == 'totality' and args.ase or config_section == 'annularity' and not args.ase:
+                continue
+            else:
+                logging.critical(f'Could not get {knob} information from Configuration File')
+                Error_Flag = True
 
 # Optional
 optionals_knobs_dict = {
     'partial': {
-        'partial_shutterspeed'   : None, 
-        'partial_shot_redundancy': '0',
-        'partial_shot_duration'  : '0'
+        'partial_shutterspeed'       : None, 
+        'partial_shot_redundancy'    : '0',
+        'partial_shot_duration'      : '0'
     },
-    'diamonds': {
-        'drings_over_partial'    : '0', 
-        'drings_over_totality'   : '0', 
-        'drings_shutterspeed'    : None, 
-        'drings_drive_mode'      : 'Single shooting'
+    'c2_c3': {
+        'before_c2_or_after_c3_time' : '0', 
+        'after_c2_or_before_c3_time' : '0', 
+        'c2_c3_shutterspeed'         : None, 
+        'c2_c3_drive_mode'           : 'Single shooting'
     },
     'totality': {
-        'totality_drive_mode'    : 'High speed continuous +', 
-        'totality_max_fps'       : '8'
+        'totality_drive_mode'        : 'High speed continuous +', 
+        'totality_max_fps'           : '8'
+    },
+    'annularity': {
+        'annularity_shutterspeed'    : None, 
+        'annularity_shot_redundancy' : '0',
+        'annularity_shot_duration'   : '0'
     },
     'cam_settings': {
-        'busy_period_guarband'   : '0.5',
-        'auto_focus_mode'        : 'Off'
+        'busy_period_guarband'       : '0.5',
+        'auto_focus_mode'            : 'Off'
     },
     'general': {
-        'print_execution_time'   : 'False'
+        'print_execution_time'       : 'False'
     }
 }
 for config_section, knobs_default_dict in optionals_knobs_dict.items():
@@ -127,7 +138,9 @@ for config_section, knobs_default_dict in optionals_knobs_dict.items():
             knobs_dict[knob] = config.get(config_section, knob)
         except:
             knobs_dict[knob] = default_value
-            if default_value is not None:
+            if config_section == 'totality' and args.ase or config_section == 'annularity' and not args.ase:
+                continue
+            elif default_value is not None:
                 logging.warning(f'No setting for {config_section} {knob} from Configuration File. Will use default is {default_value}')
             else:
                 logging.warning(f'No setting for {config_section} {knob} from Configuration File. Will be calculated')
@@ -146,14 +159,19 @@ MyProg = EOS_ECLIPSIS(
     camera=MyEOS,
     contacts_date_time_dict=contacts_date_time_dict,
     knobs_dict=knobs_dict,
+    annular_eclipse=args.ase
 )
 if args.run_partial:
     MyProg.partial_phase(force_exec=True)
 elif args.run_drings:
-    MyProg.diamonds_ring_phase(force_exec=True)
+    MyProg.c2_c3_phases(force_exec=True)
 elif args.run_totality:
     MyProg.totality_phase(force_exec=True)
 elif args.run_totality_panic:
     MyProg.totality_phase(panic_mode=True)
+elif args.run_annularity:
+    MyProg.annularity_phase(force_exec=True)
+elif args.ase:
+    MyProg.run_ase()
 else:
     MyProg.run_tse()
