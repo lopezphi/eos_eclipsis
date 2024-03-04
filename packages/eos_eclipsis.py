@@ -50,6 +50,8 @@ class EOS_ECLIPSIS:
             test_tse_rescheduler=False
             ) -> None:
         logging.info("*** EOS_ECLIPSIS Initialization ***")
+        # Knobs
+        self.knobs_dict = knobs_dict
         # Camera Object
         self.camera = camera
         # Date and Time of C1, C2, C3 and C4 
@@ -594,50 +596,46 @@ class EOS_ECLIPSIS:
                     totality_margin_time_per_photo = totality_margin_time_per_photo_temp
             if totality_margin_time < 0 and self.totality_sweep_shutterspeed[2] == '1/3':
                 logging.warning('Total margin time is negative. Will switch the Shutter Speed step from 1/3 to 1/2')
-                sweep_factor_list = self.totality_sweep_shutterspeed[:-1] + ['1/2']
-                self.totality_shutterspeed_sweep_list = self.get_sweep_list(sweep_factor_list, 'Tv')
+                self.totality_sweep_shutterspeed = self.totality_sweep_shutterspeed[:-1] + ['1/2']
+                self.totality_shutterspeed_sweep_list = self.get_sweep_list(self.totality_sweep_shutterspeed, 'Tv')
                 totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
                 if totality_margin_time < 0:
-                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
+                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)} seconds. Will try again...')
             if totality_margin_time < 0 and self.totality_sweep_aperture and self.totality_sweep_aperture[2] == '1/3' and len(self.totality_aperture_sweep_list) > 1:
                 logging.warning('Total margin time is negative. Will switch the Aperture step from 1/3 to 1/2')
-                sweep_factor_list = self.totality_sweep_aperture[:-1] + ['1/2']
-                self.totality_aperture_sweep_list = self.get_sweep_list(sweep_factor_list, 'Av')
+                self.totality_sweep_aperture = self.totality_sweep_aperture[:-1] + ['1/2']
+                self.totality_aperture_sweep_list = self.get_sweep_list(self.totality_sweep_aperture, 'Av')
                 totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
                 if totality_margin_time < 0:
-                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
+                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)} seconds. Will try again...')
             if totality_margin_time < 0 and self.totality_sweep_iso and self.totality_sweep_iso[2] == '1/3' and len(self.totality_iso_sweep_list) > 1:
                 logging.warning('Total margin time is negative. Will switch the ISO Speed step from 1/3 to 1/1')
-                sweep_factor_list = self.totality_sweep_iso[:-1] + ['1/1']
-                self.totality_iso_sweep_list = self.get_sweep_list(sweep_factor_list, 'ISO')
+                self.totality_sweep_iso = self.totality_sweep_iso[:-1] + ['1/1']
+                self.totality_iso_sweep_list = self.get_sweep_list(self.totality_sweep_iso, 'ISO')
                 totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
                 if totality_margin_time < 0:
-                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
+                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)} seconds. Will try again...')
             if totality_margin_time < 0 and self.totality_sweep_aperture and self.totality_sweep_aperture[2] != '1/1' and len(self.totality_aperture_sweep_list) > 1:
                 logging.warning(f'Total margin time is negative. Will switch the Aperture step from {self.totality_sweep_aperture[2]} to 1/1')
-                sweep_factor_list = self.totality_sweep_aperture[:-1] + ['1/1']
-                self.totality_aperture_sweep_list = self.get_sweep_list(sweep_factor_list, 'Av')
+                self.totality_sweep_aperture = self.totality_sweep_aperture[:-1] + ['1/1']
+                self.totality_aperture_sweep_list = self.get_sweep_list(self.totality_sweep_aperture, 'Av')
                 totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
                 if totality_margin_time < 0:
-                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
+                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)} seconds. Will try again...')
             if totality_margin_time < 0 and self.totality_sweep_shutterspeed[2] != '1/1':
                 logging.warning(f'Total margin time is negative. Will switch the Shutter Speed step from {self.totality_sweep_shutterspeed[2]} to 1/1')
-                sweep_factor_list = self.totality_sweep_shutterspeed[:-1] + ['1/1']
-                self.totality_shutterspeed_sweep_list = self.get_sweep_list(sweep_factor_list, 'Tv')
+                self.totality_sweep_shutterspeed = self.totality_sweep_shutterspeed[:-1] + ['1/1']
+                self.totality_shutterspeed_sweep_list = self.get_sweep_list(self.totality_sweep_shutterspeed, 'Tv')
                 totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
                 if totality_margin_time < 0:
-                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
+                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)} seconds. Will try again...')
             if self.loop_value > 1 and totality_margin_time_per_photo < self.busy_period_guarband / 3:
                 while (self.loop_value > 0 and totality_margin_time_per_photo < self.busy_period_guarband / 3):
                     self.loop_value -= 1
                     totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
                 if totality_margin_time < 0:
-                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
-            if totality_margin_time < 0:
-                logging.warning('Total margin time is negative. Will cut the Shutter Speed Sweep List by 2')
-                self.totality_shutterspeed_sweep_list = [speed for idx, speed in enumerate(self.totality_shutterspeed_sweep_list) if idx%2==0]
-                totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
-            if totality_margin_time < 0 and self.totality_sweep_aperture and len(self.totality_shutterspeed_sweep_list) > 1:
+                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)} seconds. Will try again...')
+            while(totality_margin_time < 0 and len(self.totality_shutterspeed_sweep_list) > 3):
                 logging.warning('Total margin time is negative. Will cut the Shutter Speed Sweep List by 2')
                 self.totality_shutterspeed_sweep_list = [speed for idx, speed in enumerate(self.totality_shutterspeed_sweep_list) if idx%2==0]
                 totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
@@ -645,6 +643,9 @@ class EOS_ECLIPSIS:
                 logging.critical('Event after a drastic reduction on the sweep list, there will be not enough time to go throuh properly. Starting anyway...')
                 totality_margin_time_per_photo = 0
             logging.warning('Sweep list(s) has/have reduced to fit this new plan into the remaining time window')
+            logging.info(f'Tv Sweep: {self.totality_shutterspeed_sweep_list}')
+            logging.info(f'Av Sweep: {self.totality_aperture_sweep_list}')
+            logging.info(f'ISO Sweep: {self.totality_iso_sweep_list}')
         return totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo
 
     def partial_phase(self, partial_nb=0, force_exec=False) -> None:
@@ -822,13 +823,27 @@ class EOS_ECLIPSIS:
 
     def check_totality_phase(self, test_time_step=5):
         logging.info(f"Start of Totality Phase Check...")
-        totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse()
         test_nb = 1
         c2_tstamp_ut = self.c2_tstamp
         while (self.c3_tstamp-c2_tstamp_ut-2*self.after_c2_or_before_c3_time > 0):
-            rough_total_totality_photos = max(10 * int(totality_nb_photos * (totality_margin_time_per_photo * (self.totality_max_fps*0.9) / 10)), totality_nb_photos)
             logging.info('')
             logging.info(f' ===>> Test {test_nb}: <<===')
+
+            # Reseting entry data for new test
+            # Totality Shutter Speed Sweep
+            self.totality_sweep_shutterspeed = eval(self.knobs_dict['totality_sweep_shutterspeed'])
+            self.totality_shutterspeed_sweep_list = self.get_sweep_list(self.totality_sweep_shutterspeed, 'Tv')
+            # Totality Aperture Sweep
+            self.totality_sweep_aperture = eval(self.knobs_dict['totality_sweep_aperture'])
+            self.totality_aperture_sweep_list = self.get_sweep_list(self.totality_sweep_aperture, 'Av')
+            # Totality ISO Speed Sweep
+            self.totality_sweep_iso = eval(self.knobs_dict['totality_sweep_iso'])
+            self.totality_iso_sweep_list = self.get_sweep_list(self.totality_sweep_iso, 'ISO')
+
+            totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp_ut)
+            totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.reschedule_totality(c2_tstamp_ut, totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo)
+            rough_total_totality_photos = max(10 * int(totality_nb_photos * (totality_margin_time_per_photo * (self.totality_max_fps*0.9) / 10)), totality_nb_photos)
+
             logging.info(f'Period of Time allowed for taking pictures      : {round(self.c3_tstamp-c2_tstamp_ut-2*self.after_c2_or_before_c3_time, 3)} seconds.')
             logging.info(f'Number of unique photos planned during Totality : {totality_nb_photos} photos.')
             logging.info(f'Rough total number of photos during Totality    : {rough_total_totality_photos} photos.')
@@ -839,10 +854,9 @@ class EOS_ECLIPSIS:
             if self.busy_period_guarband != 0:
                 logging.info(f'Relative Time margin vs Busy Time per photo     : {round(1e2*totality_margin_time_per_photo/self.busy_period_guarband, 2)} %.')
             logging.info(f'Number of Loop for the Totality Phase           : {self.loop_value}.')
+
             test_nb += 1
             c2_tstamp_ut += test_time_step
-            totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp_ut)
-            totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.reschedule_totality(c2_tstamp_ut, totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo)
 
     def totality_phase(self, force_exec=False, panic_mode=False):
         if panic_mode:
