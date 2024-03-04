@@ -11,7 +11,7 @@ def set_log(prefix, log_folder='logs'):
     # create logger and formater
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
-    formater = logging.Formatter('%(asctime)s - %(levelname)-8s: %(message)s', "%Y-%m-%d %H:%M:%S")
+    formater = logging.Formatter('%(asctime)s.%(msecs)03d - %(levelname)-8s: %(message)s', "%Y-%m-%d %H:%M:%S")
 
     # file handler
     if not os.path.isdir(log_folder):

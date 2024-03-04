@@ -42,6 +42,7 @@ parser.add_argument('--run_totality', action='store_true', help='Force to execut
 parser.add_argument('--run_totality_panic', action='store_true', help='Force to execute the Totality phase as planned regardless of the contacts date/time provided at the fastest pace as possible')
 parser.add_argument('--run_annularity', action='store_true', help='Force to execute the Annularity phase as planned regardless of the contacts date/time provided except for the duration between C2-C3 minus the C2&C3 Time overlap')
 parser.add_argument('--test', action='store_true', help='Test the inputs from the configuration for debug')
+parser.add_argument('--test_tse_rescheduler', action='store_true', help='Test the behavior of the totality resheduler during totality used when running late')
 parser.add_argument('--ase', action='store_true', help='Running for Annular Solar Eclipse')
 
 args = parser.parse_args()
@@ -86,7 +87,7 @@ for s in ['date', 'time']:
 
 knobs_dict = {}
 required_knobs_dict = {
-    'default_iso_av_settings': ['iso', 'aperture'],
+    'cam_settings': ['iso', 'aperture'],
     'partial': ['partial_period'],
     'totality': ['totality_sweep_shutterspeed', 'totality_sweep_aperture', 'totality_sweep_iso'],
     'annularity': ['annularity_period'],
@@ -124,12 +125,13 @@ optionals_knobs_dict = {
         'annularity_shot_redundancy' : '0',
         'annularity_shot_duration'   : '0'
     },
-    'cam_settings': {
-        'busy_period_guarband'       : '0.5',
-        'auto_focus_mode'            : 'Off'
-    },
     'general': {
         'print_execution_time'       : 'False'
+    },
+    'cam_settings': {
+        'busy_period_guarband'       : '0.5',
+        'auto_focus_mode'            : 'Off',
+        'loop_value'                 : 1,
     }
 }
 for config_section, knobs_default_dict in optionals_knobs_dict.items():
@@ -150,7 +152,7 @@ if Error_Flag:
 
 edsdk.EdsInitializeSDK()
 
-if args.test:
+if args.test or args.test_tse_rescheduler:
     MyEOS = None
 else:
     MyEOS = EOS_DSLR()
@@ -159,7 +161,8 @@ MyProg = EOS_ECLIPSIS(
     camera=MyEOS,
     contacts_date_time_dict=contacts_date_time_dict,
     knobs_dict=knobs_dict,
-    annular_eclipse=args.ase
+    annular_eclipse=args.ase,
+    test_tse_rescheduler=args.test_tse_rescheduler
 )
 if args.run_partial:
     MyProg.partial_phase(force_exec=True)

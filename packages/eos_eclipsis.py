@@ -46,7 +46,8 @@ class EOS_ECLIPSIS:
             camera,
             contacts_date_time_dict, 
             knobs_dict,
-            annular_eclipse=False
+            annular_eclipse=False,
+            test_tse_rescheduler=False
             ) -> None:
         logging.info("*** EOS_ECLIPSIS Initialization ***")
         # Camera Object
@@ -63,6 +64,8 @@ class EOS_ECLIPSIS:
         self.aperture = str(knobs_dict['aperture'])
         # ISO Speed Value for all Phases
         self.iso = str(knobs_dict['iso'])
+        # Looping over all Phases
+        self.loop_value = int(knobs_dict['loop_value'])
         # Period of time beween 2 shots during Partial Phase
         self.partial_period = knobs_dict['partial_period']
         # [Optional] Shutter Speed for Partial Phase - If not provided, will be calculated
@@ -75,6 +78,8 @@ class EOS_ECLIPSIS:
         self.saving_mode = "Camera"
         # Annular Eclipse ?
         self.annular_eclipse = annular_eclipse
+        # Testing the Totality Rescheduler ?
+        self.test_tse_rescheduler = test_tse_rescheduler
         # Print the execution Time while accessing the Camera
         try:
             self.print_execution_time = eval(knobs_dict['print_execution_time'])
@@ -272,16 +277,24 @@ class EOS_ECLIPSIS:
         unix_timestamp = datetime.datetime.timestamp(date_time)
         return unix_timestamp
 
-    def get_metrics_tse(self, c2_tstamp=None):
+    def get_metrics_tse(self, c2_tstamp=None, loop_value=None, totality_iso_sweep_list=None, totality_aperture_sweep_list=None, totality_shutterspeed_sweep_list=None):
         if c2_tstamp is None:
             c2_tstamp = self.c2_tstamp
-        totality_nb_photos = 2 * (len(self.totality_iso_sweep_list) + len(self.totality_aperture_sweep_list) + len(self.totality_shutterspeed_sweep_list))
+        if loop_value is None:
+            loop_value = self.loop_value
+        if totality_iso_sweep_list is None:
+            totality_iso_sweep_list = self.totality_iso_sweep_list
+        if totality_aperture_sweep_list is None:
+            totality_aperture_sweep_list = self.totality_aperture_sweep_list
+        if totality_shutterspeed_sweep_list is None:
+            totality_shutterspeed_sweep_list = self.totality_shutterspeed_sweep_list
+        totality_nb_photos = 2 * loop_value * (len(totality_iso_sweep_list) + len(totality_aperture_sweep_list) + len(totality_shutterspeed_sweep_list))
         totality_exposure_duration = 0
-        for exposure in self.totality_shutterspeed_sweep_list:
+        for exposure in totality_shutterspeed_sweep_list:
             totality_exposure_duration += eval(exposure.replace('h', ''))
-        for _ in self.totality_iso_sweep_list + self.totality_aperture_sweep_list:
-            totality_exposure_duration += eval(self.totality_shutterspeed_sweep_list[-1])
-        totality_exposure_duration *= 2
+        for _ in totality_iso_sweep_list + totality_aperture_sweep_list:
+            totality_exposure_duration += eval(totality_shutterspeed_sweep_list[-1].replace("h", ""))
+        totality_exposure_duration *= 2 * loop_value
         totality_margin_time = self.c3_tstamp - c2_tstamp - 2 * self.after_c2_or_before_c3_time - totality_exposure_duration - totality_nb_photos * self.busy_period_guarband
         totality_margin_time_per_photo = totality_margin_time / totality_nb_photos
         return totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo
@@ -302,7 +315,7 @@ class EOS_ECLIPSIS:
                     logging.critical(f'Avalaible list: {list(eval(sweep_type).Value.keys())}')
                     if self.camera is not None:
                         exit()
-            sweep_list = sweep_factor
+            sweep_list = sweep_factor_list
         if sweep_factor_list and not sweep_list:
             sweep_start = sweep_factor_list[0]
             sweep_end = sweep_factor_list[1]
@@ -364,6 +377,8 @@ class EOS_ECLIPSIS:
                             sweep_list.append(sweep_value)
                     if sweep_value == sweep_end:
                         add_value_flag = False
+            if not sweep_list:
+                sweep_list.append(sweep_start)
             logging.info(f'{sweep_type} Sweep List has {len(sweep_list)} points.')
             logging.info(f'{sweep_type} Sweep List: {str(sweep_list).replace("h", "")}')
         return sweep_list
@@ -426,17 +441,32 @@ class EOS_ECLIPSIS:
 
         nb_photos1 = int(round((self.c2_tstamp - self.c1_tstamp) / self.partial_period, 0))
         nb_photos2 = int(round((self.c4_tstamp - self.c3_tstamp) / self.partial_period, 0))
-        logging.info(f'Number of photos while in Partial Phase 1 : {nb_photos1}')
-        logging.info(f'Number of photos while in Partial Phase 2 : {nb_photos2}')
+        logging.info(f'Number of photos while in Partial Phase 1       : {nb_photos1} photos.')
+        logging.info(f'Number of photos while in Partial Phase 2       : {nb_photos2} photos.')
 
         if self.annular_eclipse:
-            logging.info(f'Time window to take pictures during Annularity : {c2_c3_delta2}')
+            logging.info(f'Time window to take pictures during Annularity  : {c2_c3_delta2}.')
         else:
-            logging.info(f'Time window to take pictures during Totality   : {c2_c3_delta2}')
-        logging.info(f'Time window to take pictures during C2 - C3    : {c2_c3_before_and_after_delta}')
+            logging.info(f'Time window to take pictures during Totality    : {c2_c3_delta2}.')
+        logging.info(f'Time window to take pictures during C2 - C3     : {c2_c3_before_and_after_delta}.')
+        rough_total_photos_c2_c3 = int(c2_c3_before_and_after_delta.total_seconds() / (self.busy_period_guarband + eval(self.c2_c3_shutterspeed)))
+        logging.info(f'Rough total number of photos during C2 - C3     : {rough_total_photos_c2_c3} photos.')
 
         if not self.annular_eclipse:
-            totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse()
+            totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse()            
+            rough_total_totality_photos = max(10 * int(totality_nb_photos * (totality_margin_time_per_photo * (self.totality_max_fps*0.9) / 10)), totality_nb_photos)
+            logging.info(f'Period of Time allowed for taking pictures      : {round(self.c3_tstamp-self.c2_tstamp-2*self.after_c2_or_before_c3_time, 3)} seconds.')
+            logging.info(f'Number of unique photos planned during Totality : {totality_nb_photos} photos.')
+            logging.info(f'Rough total number of photos during Totality    : {rough_total_totality_photos} photos.')
+            logging.info(f'Total Exposure Time during Totality             : {round(totality_exposure_duration, 3)} seconds.')
+            logging.info(f'Estimated Camera Busy time after one shot       : {self.busy_period_guarband} seconds.')
+            logging.info(f'Time margin left during Totality                : {round(totality_margin_time, 3)} seconds.')
+            logging.info(f'Time margin left during Totality per photo      : {round(1e3*totality_margin_time_per_photo, 3)} milliseconds.')
+            if self.busy_period_guarband != 0:
+                logging.info(f'Relative Time margin vs Busy Time per photo     : {round(1e2*totality_margin_time_per_photo/self.busy_period_guarband, 2)} %.')
+            logging.info(f'Number of Loop for the Totality Phase           : {self.loop_value}.')
+            logging.info(f'Rough total number of photos during Eclipse     : {nb_photos1 + nb_photos2 + rough_total_photos_c2_c3 + rough_total_totality_photos} photos.')
+
             if totality_margin_time < 0:
                 logging.critical('Will run into time issues during Totality. Change your input parameters!')
             elif totality_margin_time_per_photo < self.busy_period_guarband / 10:
@@ -447,16 +477,7 @@ class EOS_ECLIPSIS:
                 logging.warning('Tight Schedule during the Totality!')
             else:
                 logging.info('Schedule during the Totality looks OK!')
-            
-            logging.info(f'Period of Time allowed for taking pictures  : {round(self.c3_tstamp-self.c2_tstamp-2*self.after_c2_or_before_c3_time, 3)} seconds.')
-            logging.info(f'Number of photos planned during Totality    : {totality_nb_photos} photos.')
-            logging.info(f'Total Exposure Time during Totality         : {round(totality_exposure_duration, 3)} seconds.')
-            logging.info(f'Estimated Camera Busy time after one shot   : {self.busy_period_guarband} seconds.')
-            logging.info(f'Time margin left during Totality            : {round(totality_margin_time, 3)} seconds.')
-            logging.info(f'Time margin left during Totality per photo  : {round(1e3*totality_margin_time_per_photo, 3)} milliseconds.')
-            if self.busy_period_guarband != 0:
-                logging.info(f'Relative Time margin vs Busy Time per photo : {round(1e2*totality_margin_time_per_photo/self.busy_period_guarband, 2)} %.')
-        
+
         self.get_value('Interval Time', 'int', self.busy_period_guarband)
 
         if self.iso not in ISO.Value:
@@ -472,13 +493,13 @@ class EOS_ECLIPSIS:
             self.camera.SetProperty(property=Property.Av, parameter=Av.Value[self.aperture], property_name='Av', start_time=self.timenow())
 
         if self.partial_shutterspeed not in Tv.Value:
-            logging.critical('Shutter Speed Value is not defined in EDSDK Settings')
+            logging.critical(f'Shutter Speed Value is not defined in EDSDK Settings for partial phase: {self.partial_shutterspeed}')
             logging.info(f'Available Shutter Speed: {list(Tv.Value.keys())}')
         elif self.camera is not None:
             self.camera.SetProperty(property=Property.Tv, parameter=Tv.Value[self.partial_shutterspeed], property_name='Tv', start_time=self.timenow())
 
         if self.c2_c3_shutterspeed not in Tv.Value:
-            logging.critical('Shutter Speed Value is not defined in EDSDK Settings')
+            logging.critical(f'Shutter Speed Value is not defined in EDSDK Settings for c2_c3 phase: {self.c2_c3_shutterspeed}')
             logging.info(f'Available Shutter Speed: {list(Tv.Value.keys())}')
         elif self.camera is not None: 
             self.camera.SetProperty(property=Property.Tv, parameter=Tv.Value[self.c2_c3_shutterspeed], property_name='Tv', start_time=self.timenow())
@@ -496,11 +517,11 @@ class EOS_ECLIPSIS:
                     logging.critical(f"{event} Date/Time is a past event - Date/Time: {str(dt_object)[:-4]}")
                     logging.critical(f"Date/Time of Last Even is also a past event - Date/Time: {str(datetime.datetime.fromtimestamp(self.c4_tstamp))[:-4]}")
                 else:
-                    logging.info(f"{event} Date/Time will happen in {converted_time_to_event}!")
+                    logging.info(f"{event} Date/Time will happen in {converted_time_to_event} !")
             elif time_to_event < 0:
                 logging.info(f"{event} Date/Time is a past event - Date/Time: {str(dt_object)[:-4]}")
             else:
-                logging.info(f"{event} Date/Time will happen in {converted_time_to_event}!")
+                logging.info(f"{event} Date/Time will happen in {converted_time_to_event} !")
         else:
             if time_to_last_event < 0:
                 if time_to_event < 0:
@@ -510,12 +531,12 @@ class EOS_ECLIPSIS:
                 elif time_to_event + max(self.before_c2_or_after_c3_time, self.after_c2_or_before_c3_time) > -1:
                     logging.info(f"{event} Date/Time is ~now~ - Date/Time: {str(dt_object)[:-4]}")
                 else:
-                    logging.warning(f"{event} Date/Time will happen in {converted_time_to_event}!")
+                    logging.warning(f"{event} Date/Time will happen in {converted_time_to_event} !")
             elif time_to_event > 43200:
-                logging.critical(f"{event} Date/Time will happen in {converted_time_to_event}!")
+                logging.critical(f"{event} Date/Time will happen in {converted_time_to_event} !")
                 # exit()
             elif time_to_event > 14400:
-                logging.warning(f"{event} Date/Time will happen in {converted_time_to_event}!")
+                logging.warning(f"{event} Date/Time will happen in {converted_time_to_event} !")
             elif time_to_event > 0:
                 logging.info(f"{event} Date/Time will happen in {converted_time_to_event} ...")
             elif time_to_event + max(self.before_c2_or_after_c3_time, self.after_c2_or_before_c3_time) + 2 > 0:
@@ -533,8 +554,98 @@ class EOS_ECLIPSIS:
                 print("\t--> Countdown for Next Event " + str(event) + " at " + str(event_date_time)[:-4] + ": {:3d} seconds remaining <--".format(i), end="\r", flush=True)
                 time.sleep(1)
             print("")
-        else:
+        elif time_to_event > 0:
             time.sleep(time_to_event)
+
+    def reschedule_totality(self, c2_tstamp, totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo):
+        if totality_margin_time < 0 or self.loop_value > 1 and totality_margin_time_per_photo < self.busy_period_guarband / 3:
+            if self.loop_value > 1:
+                if totality_margin_time < 0:
+                    logging.warning('Total margin time is negative. Will first check if reducing the number of loop is mandatory')
+                totality_sweep_iso = self.totality_sweep_iso[:-1] + ['1/1']
+                totality_iso_sweep_list = self.get_sweep_list(totality_sweep_iso, 'ISO')
+                totality_sweep_aperture = self.totality_sweep_aperture[:-1] + ['1/1']
+                totality_aperture_sweep_list = self.get_sweep_list(totality_sweep_aperture, 'Av')
+                totality_sweep_shutterspeed = self.totality_sweep_shutterspeed[:-1] + ['1/1']
+                totality_shutterspeed_sweep_list = self.get_sweep_list(totality_sweep_shutterspeed, 'Tv')
+                totality_nb_photos_temp, totality_exposure_duration_temp, totality_margin_time_temp, totality_margin_time_per_photo_temp = self.get_metrics_tse(
+                    c2_tstamp=c2_tstamp,
+                    totality_iso_sweep_list=totality_iso_sweep_list, 
+                    totality_aperture_sweep_list=totality_aperture_sweep_list, 
+                    totality_shutterspeed_sweep_list=totality_shutterspeed_sweep_list)
+                while (self.loop_value > 0 and totality_margin_time_per_photo_temp < self.busy_period_guarband / 3):
+                    self.loop_value -= 1
+                    totality_nb_photos_temp, totality_exposure_duration_temp, totality_margin_time_temp, totality_margin_time_per_photo_temp = self.get_metrics_tse(
+                        c2_tstamp=c2_tstamp,
+                        totality_iso_sweep_list=totality_iso_sweep_list, 
+                        totality_aperture_sweep_list=totality_aperture_sweep_list, 
+                        totality_shutterspeed_sweep_list=totality_shutterspeed_sweep_list)
+                if totality_margin_time_temp < 0:
+                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)} with strong reduced set of sweep and no loop. Will try again...')
+                    self.totality_sweep_iso = totality_sweep_iso
+                    self.totality_iso_sweep_list = totality_iso_sweep_list
+                    self.totality_sweep_aperture = totality_sweep_aperture
+                    self.totality_aperture_sweep_list = totality_aperture_sweep_list
+                    self.totality_sweep_shutterspeed = totality_sweep_shutterspeed
+                    self.totality_shutterspeed_sweep_list = totality_shutterspeed_sweep_list
+                    totality_nb_photos = totality_nb_photos_temp
+                    totality_exposure_duration = totality_exposure_duration_temp
+                    totality_margin_time = totality_margin_time_temp
+                    totality_margin_time_per_photo = totality_margin_time_per_photo_temp
+            if totality_margin_time < 0 and self.totality_sweep_shutterspeed[2] == '1/3':
+                logging.warning('Total margin time is negative. Will switch the Shutter Speed step from 1/3 to 1/2')
+                sweep_factor_list = self.totality_sweep_shutterspeed[:-1] + ['1/2']
+                self.totality_shutterspeed_sweep_list = self.get_sweep_list(sweep_factor_list, 'Tv')
+                totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
+                if totality_margin_time < 0:
+                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
+            if totality_margin_time < 0 and self.totality_sweep_aperture and self.totality_sweep_aperture[2] == '1/3' and len(self.totality_aperture_sweep_list) > 1:
+                logging.warning('Total margin time is negative. Will switch the Aperture step from 1/3 to 1/2')
+                sweep_factor_list = self.totality_sweep_aperture[:-1] + ['1/2']
+                self.totality_aperture_sweep_list = self.get_sweep_list(sweep_factor_list, 'Av')
+                totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
+                if totality_margin_time < 0:
+                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
+            if totality_margin_time < 0 and self.totality_sweep_iso and self.totality_sweep_iso[2] == '1/3' and len(self.totality_iso_sweep_list) > 1:
+                logging.warning('Total margin time is negative. Will switch the ISO Speed step from 1/3 to 1/1')
+                sweep_factor_list = self.totality_sweep_iso[:-1] + ['1/1']
+                self.totality_iso_sweep_list = self.get_sweep_list(sweep_factor_list, 'ISO')
+                totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
+                if totality_margin_time < 0:
+                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
+            if totality_margin_time < 0 and self.totality_sweep_aperture and self.totality_sweep_aperture[2] != '1/1' and len(self.totality_aperture_sweep_list) > 1:
+                logging.warning(f'Total margin time is negative. Will switch the Aperture step from {self.totality_sweep_aperture[2]} to 1/1')
+                sweep_factor_list = self.totality_sweep_aperture[:-1] + ['1/1']
+                self.totality_aperture_sweep_list = self.get_sweep_list(sweep_factor_list, 'Av')
+                totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
+                if totality_margin_time < 0:
+                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
+            if totality_margin_time < 0 and self.totality_sweep_shutterspeed[2] != '1/1':
+                logging.warning(f'Total margin time is negative. Will switch the Shutter Speed step from {self.totality_sweep_shutterspeed[2]} to 1/1')
+                sweep_factor_list = self.totality_sweep_shutterspeed[:-1] + ['1/1']
+                self.totality_shutterspeed_sweep_list = self.get_sweep_list(sweep_factor_list, 'Tv')
+                totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
+                if totality_margin_time < 0:
+                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
+            if self.loop_value > 1 and totality_margin_time_per_photo < self.busy_period_guarband / 3:
+                while (self.loop_value > 0 and totality_margin_time_per_photo < self.busy_period_guarband / 3):
+                    self.loop_value -= 1
+                    totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
+                if totality_margin_time < 0:
+                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
+            if totality_margin_time < 0:
+                logging.warning('Total margin time is negative. Will cut the Shutter Speed Sweep List by 2')
+                self.totality_shutterspeed_sweep_list = [speed for idx, speed in enumerate(self.totality_shutterspeed_sweep_list) if idx%2==0]
+                totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
+            if totality_margin_time < 0 and self.totality_sweep_aperture and len(self.totality_shutterspeed_sweep_list) > 1:
+                logging.warning('Total margin time is negative. Will cut the Shutter Speed Sweep List by 2')
+                self.totality_shutterspeed_sweep_list = [speed for idx, speed in enumerate(self.totality_shutterspeed_sweep_list) if idx%2==0]
+                totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp)
+            if totality_margin_time < 0:
+                logging.critical('Event after a drastic reduction on the sweep list, there will be not enough time to go throuh properly. Starting anyway...')
+                totality_margin_time_per_photo = 0
+            logging.warning('Sweep list(s) has/have reduced to fit this new plan into the remaining time window')
+        return totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo
 
     def partial_phase(self, partial_nb=0, force_exec=False) -> None:
         if partial_nb == 1:
@@ -611,12 +722,16 @@ class EOS_ECLIPSIS:
                 if c1_time_to_event > 0:
                     logging.info("Start of the Pre-Partial Waiting Phase...")
                     if partial_nb == 2 and not self.annular_eclipse:
+                        logging.info("")
                         logging.info(" ===>>> !! PLACE AGAIN THE SOLAR FILTER !! <<<===")
+                        logging.info("")
                     self.wait_period(c1_time_to_event, c1_name)
 
                 logging.info(f"Start of the Partial Phase...")
-                if partial_nb == 2 and c1_time_to_event > -120 and not self.annular_eclipse:
-                    logging.info(" ===>>> !! PLACE AGAIN THE SOLAR FILTER !! ===>>>")
+                if partial_nb == 2 and c1_time_to_event > -30 and not self.annular_eclipse:
+                    logging.info("")
+                    logging.info(" ===>>> !! PLACE AGAIN THE SOLAR FILTER !! <<<===")
+                    logging.info("")
                 next_time = c1_tstamp
                 nb_photo_taken = 0
                 while next_time < utcnow + 1:
@@ -674,7 +789,9 @@ class EOS_ECLIPSIS:
             if c1_time_to_event > 0 and not force_exec:
                 logging.info(f"Start of the Contact {contact} Waiting Phase...")
                 if contact == 'C2' and not self.annular_eclipse:
+                    logging.info("")
                     logging.info(" ===>>> !! REMOVE THE SOLAR FILTER !! <<<===")
+                    logging.info("")
                 self.wait_period(c1_time_to_event, "Contact Start")
 
             if c2_or_c3_time_to_event > 0 or force_exec:
@@ -683,7 +800,9 @@ class EOS_ECLIPSIS:
                 else:
                     duration = c2_or_c3_time_to_event
                     if contact == 'C2' and not self.annular_eclipse:
+                        logging.info("")
                         logging.info(" ===>>> !! REMOVE THE SOLAR FILTER !! <<<===")
+                        logging.info("")
                 if force_exec:
                     logging.info(f"Start of Contact for {duration} seconds in forced execution...")
                 else:
@@ -700,6 +819,30 @@ class EOS_ECLIPSIS:
                 logging.info(f"End of Contact...")
         else:
             logging.error(f"You're way too late for Contact {contact}. Phase skipped")
+
+    def check_totality_phase(self, test_time_step=5):
+        logging.info(f"Start of Totality Phase Check...")
+        totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse()
+        test_nb = 1
+        c2_tstamp_ut = self.c2_tstamp
+        while (self.c3_tstamp-c2_tstamp_ut-2*self.after_c2_or_before_c3_time > 0):
+            rough_total_totality_photos = max(10 * int(totality_nb_photos * (totality_margin_time_per_photo * (self.totality_max_fps*0.9) / 10)), totality_nb_photos)
+            logging.info('')
+            logging.info(f' ===>> Test {test_nb}: <<===')
+            logging.info(f'Period of Time allowed for taking pictures      : {round(self.c3_tstamp-c2_tstamp_ut-2*self.after_c2_or_before_c3_time, 3)} seconds.')
+            logging.info(f'Number of unique photos planned during Totality : {totality_nb_photos} photos.')
+            logging.info(f'Rough total number of photos during Totality    : {rough_total_totality_photos} photos.')
+            logging.info(f'Total Exposure Time during Totality             : {round(totality_exposure_duration, 3)} seconds.')
+            logging.info(f'Estimated Camera Busy time after one shot       : {self.busy_period_guarband} seconds.')
+            logging.info(f'Time margin left during Totality                : {round(totality_margin_time, 3)} seconds.')
+            logging.info(f'Time margin left during Totality per photo      : {round(1e3*totality_margin_time_per_photo, 3)} milliseconds.')
+            if self.busy_period_guarband != 0:
+                logging.info(f'Relative Time margin vs Busy Time per photo     : {round(1e2*totality_margin_time_per_photo/self.busy_period_guarband, 2)} %.')
+            logging.info(f'Number of Loop for the Totality Phase           : {self.loop_value}.')
+            test_nb += 1
+            c2_tstamp_ut += test_time_step
+            totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=c2_tstamp_ut)
+            totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.reschedule_totality(c2_tstamp_ut, totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo)
 
     def totality_phase(self, force_exec=False, panic_mode=False):
         if panic_mode:
@@ -746,74 +889,29 @@ class EOS_ECLIPSIS:
                 utcnow = self.utcnow()
                 if self.c2_tstamp + self.after_c2_or_before_c3_time < utcnow - 2 and not force_exec:
                     logging.warning(f"You're Running late for Totality by {round(self.c2_tstamp + self.after_c2_or_before_c3_time - utcnow, 3)} second(s)!!")
-
                     # Re-checking if initial setting are still applicable with the shorten time period by looking at the total time margin
                     # and if the time margin is negative, will try to reduce the sweep list step by step until a margin become positive again if possible
-                    totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=utcnow)
-                    if totality_margin_time < 0:
-                        if self.totality_sweep_shutterspeed[2] == '1/3':
-                            logging.warning('Total margin time is negative. Will switch the Shutter Speed step from 1/3 to 1/2')
-                            sweep_factor_list = self.totality_sweep_shutterspeed[:-1] + ['1/2']
-                            self.totality_shutterspeed_sweep_list = self.get_sweep_list(sweep_factor_list, 'Tv')
-                            totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse()
-                            if totality_margin_time < 0:
-                                logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
-                        if self.totality_sweep_aperture[2] == '1/3':
-                            logging.warning('Total margin time is negative. Will switch the Aperture step from 1/3 to 1/2')
-                            sweep_factor_list = self.totality_sweep_aperture[:-1] + ['1/2']
-                            self.totality_aperture_sweep_list = self.get_sweep_list(sweep_factor_list, 'Av')
-                            totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse()
-                            if totality_margin_time < 0:
-                                logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
-                        if totality_margin_time < 0 and self.totality_iso_sweep_list:
-                            if self.totality_sweep_iso[2] == '1/3':
-                                logging.warning('Total margin time is negative. Will switch the ISO Speed step from 1/3 to 1/1')
-                                sweep_factor_list = self.totality_sweep_iso[:-1] + ['1/1']
-                                self.totality_iso_sweep_list = self.get_sweep_list(sweep_factor_list, 'ISO')
-                                totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse()
-                                if totality_margin_time < 0:
-                                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
-                        if totality_margin_time < 0:
-                            if self.totality_sweep_shutterspeed[2] == '1/3'or self.totality_sweep_shutterspeed[2] == '1/2':
-                                logging.warning('Total margin time is negative. Will switch the Shutter Speed step from 1/2 to 1/1')
-                                sweep_factor_list = self.totality_sweep_shutterspeed[:-1] + ['1/1']
-                                self.totality_shutterspeed_sweep_list = self.get_sweep_list(sweep_factor_list, 'Tv')
-                                totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse()
-                                if totality_margin_time < 0:
-                                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
-                        if totality_margin_time < 0:
-                            if self.totality_sweep_aperture[2] == '1/3'or self.totality_sweep_aperture[2] == '1/2':
-                                logging.warning('Total margin time is negative. Will switch the Aperture step from 1/2 to 1/1')
-                                sweep_factor_list = self.totality_sweep_aperture[:-1] + ['1/1']
-                                self.totality_aperture_sweep_list = self.get_sweep_list(sweep_factor_list, 'Av')
-                                totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse()
-                                if totality_margin_time < 0:
-                                    logging.warning(f'Total margin time is still negative: {round(totality_margin_time, 3)}. Will try again...')
-                        if totality_margin_time < 0:
-                            logging.warning('Total margin time is negative. Will cut the Shutter Speed Sweep List by 2')
-                            self.totality_shutterspeed_sweep_list = [speed for idx, speed in enumerate(self.totality_shutterspeed_sweep_list) if idx%2==0]
-                            totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse()
-                        if totality_margin_time < 0:
-                            logging.critical('Event after a drastic reduction on the sweep list, there will be not enough time to go throuh properly. Starting anyway...')
-                            totality_margin_time_per_photo = 0
-
-                        logging.warning('Sweep list(s) has/have reduced to fit this new plan into the remaining time window')
-                        logging.info(f'Period of Time allowed for taking pictures             : {round(self.c3_tstamp-utcnow-2*self.after_c2_or_before_c3_time, 3)} seconds.')
-                        logging.info(f'Number of photos planned during Totality               : {totality_nb_photos} photos.')
-                        logging.info(f'Total Exposure Time during Totality                    : {round(totality_exposure_duration, 3)} seconds.')
-                        logging.info(f'Estimated Camera Busy time GuardBand after burst shots : {self.busy_period_guarband} seconds.')
-                        logging.info(f'Time margin left during Totality                       : {round(totality_margin_time, 3)} seconds.')
-                        logging.info(f'Time margin left during Totality per photo             : {round(1e3*totality_margin_time_per_photo, 3)} milliseconds.')
-                        if self.busy_period_guarband != 0:
-                            logging.info(f'Relative Time margin vs Busy Time per photo            : {round(1e2*totality_margin_time_per_photo/self.busy_period_guarband, 2)} %.')
-
-                    next_event_time = utcnow
+                    totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse(c2_tstamp=self.utcnow())
+                    self.reschedule_totality(self.utcnow, totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo)
+                    rough_total_totality_photos = max(10 * int(totality_nb_photos * (totality_margin_time_per_photo * (self.totality_max_fps*0.9) / 10)), totality_nb_photos)
+                    logging.info(f'New metrics for the Totality Phase:')
+                    logging.info(f'Period of Time allowed for taking pictures      : {round(self.c3_tstamp-self.utcnow()-2*self.after_c2_or_before_c3_time, 3)} seconds.')
+                    logging.info(f'Number of unique photos planned during Totality : {totality_nb_photos} photos.')
+                    logging.info(f'Rough total number of photos during Totality    : {rough_total_totality_photos} photos.')
+                    logging.info(f'Total Exposure Time during Totality             : {round(totality_exposure_duration, 3)} seconds.')
+                    logging.info(f'Estimated Camera Busy time after one shot       : {self.busy_period_guarband} seconds.')
+                    logging.info(f'Time margin left during Totality                : {round(totality_margin_time, 3)} seconds.')
+                    logging.info(f'Time margin left during Totality per photo      : {round(1e3*totality_margin_time_per_photo, 3)} milliseconds.')
+                    if self.busy_period_guarband != 0:
+                        logging.info(f'Relative Time margin vs Busy Time per photo     : {round(1e2*totality_margin_time_per_photo/self.busy_period_guarband, 2)} %.')
+                    logging.info(f'Number of Loop for the Totality Phase           : {self.loop_value}.')
+                    next_event_time = self.utcnow()
                 else:
                     totality_nb_photos, totality_exposure_duration, totality_margin_time, totality_margin_time_per_photo = self.get_metrics_tse()
                     if force_exec:
                         next_event_time = self.c2_tstamp + self.after_c2_or_before_c3_time
                     else:
-                        next_event_time = max(utcnow, self.c2_tstamp + self.after_c2_or_before_c3_time)
+                        next_event_time = max(self.utcnow(), self.c2_tstamp + self.after_c2_or_before_c3_time)
                     
                 if self.camera is not None:
                     totality_weighted_exposure_duration = 0
@@ -821,65 +919,71 @@ class EOS_ECLIPSIS:
                         totality_weighted_exposure_duration += max(eval(shutterspeed.replace('h', '')), 1/self.totality_max_fps)
                     for _ in self.totality_iso_sweep_list + self.totality_aperture_sweep_list:
                         totality_weighted_exposure_duration += max(eval(self.totality_shutterspeed_sweep_list[-1].replace('h', '')), 1/self.totality_max_fps)
-                    totality_weighted_exposure_duration *= 2
-                    totality_weighted_margin_time = self.c3_tstamp - next_event_time - self.after_c2_or_before_c3_time - totality_weighted_exposure_duration
+                    totality_weighted_exposure_duration *= 2 * self.loop_value
+                    totality_weighted_margin_time = self.c3_tstamp - self.after_c2_or_before_c3_time - next_event_time - totality_weighted_exposure_duration
 
                     if force_exec:
-                        next_event_time = utcnow
+                        next_event_time = self.utcnow()
                         
-                    for shutterspeed in self.totality_shutterspeed_sweep_list:
-                        shutterspeed_val = shutterspeed.replace('h', '')
-                        duration = (max(eval(shutterspeed_val), 1/self.totality_max_fps) / totality_weighted_exposure_duration) * totality_weighted_margin_time + max(eval(shutterspeed_val), 1/self.totality_max_fps)
-                        next_event_time += duration
-                        utcnow = self.utcnow()
-                        if next_event_time > utcnow - 1 or force_exec:
-                            self.camera.SetProperty(property=Property.Tv, parameter=Tv.Value[shutterspeed], property_name='Tv', start_time=self.timenow())
-                            logging.info(f'Shoot at {shutterspeed_val} Shutter Speed and {self.aperture} Aperture and {self.iso} ISO for {round(duration, 3)} s.')
-                            self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
-                        else:
-                            logging.error(f'Skipping pictures at Shutter Speed {shutterspeed_val} as we are running late by {round(next_event_time-utcnow, 3)} seconds on the schedule')
-                    for aperture in self.totality_aperture_sweep_list:
-                        next_event_time += duration
-                        utcnow = self.utcnow()
-                        if next_event_time > utcnow - 1 or force_exec:
-                            self.camera.SetProperty(property=Property.Av, parameter=Av.Value[aperture], property_name='Av', start_time=self.timenow())
-                            logging.info(f'Shoot at {shutterspeed_val} Shutter Speed and {aperture} Aperture and {self.iso} ISO for {round(duration, 3)} s.')
-                            self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
-                        else:
-                            logging.error(f'Skipping pictures at Shutter Speed {shutterspeed_val} as we are running late by {round(next_event_time-utcnow, 3)} seconds on the schedule')
-                    for iso in self.totality_iso_sweep_list + list(reversed(self.totality_iso_sweep_list)):
-                        next_event_time += duration
-                        utcnow = self.utcnow()
-                        if next_event_time > utcnow -1 or force_exec:
-                            self.camera.SetProperty(property=Property.ISOSpeed, parameter=ISO.Value[iso], property_name='ISO', start_time=self.timenow())
-                            logging.info(f'Shoot at {shutterspeed_val} Shutter Speed and {aperture} Aperture and {iso} ISO for {round(duration, 3)} s.')
-                            self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
-                        else:
-                            logging.error(f'Skipping pictures at ISO Speed {iso} as we are running late on the schedule')
-                    if self.totality_iso_sweep_list:
-                        self.camera.SetProperty(property=Property.ISOSpeed, parameter=ISO.Value[self.iso], property_name='ISO', start_time=self.timenow())
-                    for aperture in reversed(self.totality_aperture_sweep_list):
-                        next_event_time += duration
-                        utcnow = self.utcnow()
-                        if next_event_time > utcnow - 1 or force_exec:
-                            self.camera.SetProperty(property=Property.Av, parameter=Av.Value[aperture], property_name='Av', start_time=self.timenow())
-                            logging.info(f'Shoot at {shutterspeed_val} Shutter Speed and {aperture} Aperture and {self.iso} ISO for {round(duration, 3)} s.')
-                            self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
-                        else:
-                            logging.error(f'Skipping pictures at Shutter Speed {shutterspeed_val} as we are running late by {round(next_event_time-utcnow, 3)} seconds on the schedule')
-                    if self.totality_aperture_sweep_list:
-                        self.camera.SetProperty(property=Property.Av, parameter=Av.Value[self.aperture], property_name='Av', start_time=self.timenow())
-                    for shutterspeed in reversed(self.totality_shutterspeed_sweep_list):
-                        shutterspeed_val = shutterspeed.replace('h', '')
-                        duration = (max(eval(shutterspeed_val), 1/self.totality_max_fps) / totality_weighted_exposure_duration) * totality_weighted_margin_time + max(eval(shutterspeed_val), 1/self.totality_max_fps)
-                        next_event_time += duration
-                        utcnow = self.utcnow()
-                        if next_event_time > utcnow - 1 or force_exec:
-                            self.camera.SetProperty(property=Property.Tv, parameter=Tv.Value[shutterspeed], property_name='Tv', start_time=self.timenow())
-                            logging.info(f'Shoot at {shutterspeed_val} Shutter Speed and {self.aperture} Aperture and {self.iso} ISO for {round(duration, 3)} s.')
-                            self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
-                        else:
-                            logging.error(f'Skipping pictures at Shutter Speed {shutterspeed_val} as we are running late by {round(next_event_time-utcnow, 3)} seconds on the schedule')
+                    for loop_nb in range(self.loop_value):
+                        if self.loop_value != 1:
+                            logging.info("")
+                            logging.info(f' ===>> Totality Phase Loop Number: {loop_nb + 1} <<===')
+                        for shutterspeed in self.totality_shutterspeed_sweep_list:
+                            shutterspeed_str = shutterspeed.replace('h', '')
+                            shutterspeed_eval = eval(shutterspeed_str)
+                            duration = (max(shutterspeed_eval, 1/self.totality_max_fps) / totality_weighted_exposure_duration) * totality_weighted_margin_time + max(shutterspeed_eval, 1/self.totality_max_fps)
+                            next_event_time += duration
+                            utcnow = self.utcnow()
+                            if next_event_time > utcnow - 1 or force_exec:
+                                self.camera.SetProperty(property=Property.Tv, parameter=Tv.Value[shutterspeed], property_name='Tv', start_time=self.timenow())
+                                logging.info(f'Shoot at {shutterspeed_str} Shutter Speed and {self.aperture} Aperture and {self.iso} ISO for {round(duration, 3)} s.')
+                                self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
+                            else:
+                                logging.error(f'Skipping pictures at Shutter Speed {shutterspeed_str} as we are running late by {round(next_event_time-utcnow, 3)} seconds on the schedule')
+                        for aperture in self.totality_aperture_sweep_list:
+                            next_event_time += duration
+                            utcnow = self.utcnow()
+                            if next_event_time > utcnow - 1 or force_exec:
+                                self.camera.SetProperty(property=Property.Av, parameter=Av.Value[aperture], property_name='Av', start_time=self.timenow())
+                                logging.info(f'Shoot at {shutterspeed_str} Shutter Speed and {aperture} Aperture and {self.iso} ISO for {round(duration, 3)} s.')
+                                self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
+                            else:
+                                logging.error(f'Skipping pictures at Shutter Speed {shutterspeed_str} as we are running late by {round(next_event_time-utcnow, 3)} seconds on the schedule')
+                        for iso in self.totality_iso_sweep_list + list(reversed(self.totality_iso_sweep_list)):
+                            next_event_time += duration
+                            utcnow = self.utcnow()
+                            if next_event_time > utcnow -1 or force_exec:
+                                self.camera.SetProperty(property=Property.ISOSpeed, parameter=ISO.Value[iso], property_name='ISO', start_time=self.timenow())
+                                logging.info(f'Shoot at {shutterspeed_str} Shutter Speed and {aperture} Aperture and {iso} ISO for {round(duration, 3)} s.')
+                                self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
+                            else:
+                                logging.error(f'Skipping pictures at ISO Speed {iso} as we are running late on the schedule')
+                        if self.totality_iso_sweep_list:
+                            self.camera.SetProperty(property=Property.ISOSpeed, parameter=ISO.Value[self.iso], property_name='ISO', start_time=self.timenow())
+                        for aperture in reversed(self.totality_aperture_sweep_list):
+                            next_event_time += duration
+                            utcnow = self.utcnow()
+                            if next_event_time > utcnow - 1 or force_exec:
+                                self.camera.SetProperty(property=Property.Av, parameter=Av.Value[aperture], property_name='Av', start_time=self.timenow())
+                                logging.info(f'Shoot at {shutterspeed_str} Shutter Speed and {aperture} Aperture and {self.iso} ISO for {round(duration, 3)} s.')
+                                self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
+                            else:
+                                logging.error(f'Skipping pictures at Shutter Speed {shutterspeed_str} as we are running late by {round(next_event_time-utcnow, 3)} seconds on the schedule')
+                        if self.totality_aperture_sweep_list:
+                            self.camera.SetProperty(property=Property.Av, parameter=Av.Value[self.aperture], property_name='Av', start_time=self.timenow())
+                        for shutterspeed in reversed(self.totality_shutterspeed_sweep_list):
+                            shutterspeed_str = shutterspeed.replace('h', '')
+                            shutterspeed_eval = eval(shutterspeed_str)
+                            duration = (max(shutterspeed_eval, 1/self.totality_max_fps) / totality_weighted_exposure_duration) * totality_weighted_margin_time + max(shutterspeed_eval, 1/self.totality_max_fps)
+                            next_event_time += duration
+                            utcnow = self.utcnow()
+                            if next_event_time > utcnow - 1 or force_exec:
+                                self.camera.SetProperty(property=Property.Tv, parameter=Tv.Value[shutterspeed], property_name='Tv', start_time=self.timenow())
+                                logging.info(f'Shoot at {shutterspeed_str} Shutter Speed and {self.aperture} Aperture and {self.iso} ISO for {round(duration, 3)} s.')
+                                self.camera.BurstShootNonAF(duration=duration, next_event_time=next_event_time-self.busy_period_guarband/2, start_time=self.timenow())
+                            else:
+                                logging.error(f'Skipping pictures at Shutter Speed {shutterspeed_str} as we are running late by {round(next_event_time-utcnow, 3)} seconds on the schedule')
                 logging.info(f"End of Totality Phase...")
 
             else:
@@ -978,6 +1082,9 @@ class EOS_ECLIPSIS:
             self.c2_c3_phases('C3')
             self.partial_phase(2)
             logging.info("*** END OF THE PROGRAM ***")
+        elif self.test_tse_rescheduler:
+            logging.info("*** TESTING THE TOTALITY RESCHEDULER ***")
+            self.check_totality_phase()
             
     def run_ase(self):
         self.check_input_data()
